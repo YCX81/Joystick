@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram id="solid-arch" name="SOLID Architecture v3">
-        <mxGraphModel dx="602" dy="659" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1600" background="#FAFAFA" math="0" shadow="0">
+        <mxGraphModel dx="807" dy="775" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1600" background="#FAFAFA" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -332,12 +332,6 @@
                 </mxCell>
                 <mxCell id="306" value="&lt;b&gt;SRP&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#00897B;strokeColor=#00695C;fontSize=10;fontStyle=1;fontColor=#FFFFFF;arcSize=50;" parent="1" vertex="1">
                     <mxGeometry x="1900" y="685" width="50" height="24" as="geometry"/>
-                </mxCell>
-                <mxCell id="500" value="v3 NEW" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FF6D00;strokeColor=#E65100;fontSize=9;fontStyle=1;fontColor=#FFFFFF;arcSize=50;shadow=1;" parent="1" vertex="1">
-                    <mxGeometry x="1810" y="243" width="55" height="20" as="geometry"/>
-                </mxCell>
-                <mxCell id="502" value="v3 NEW" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FF6D00;strokeColor=#E65100;fontSize=9;fontStyle=1;fontColor=#FFFFFF;arcSize=50;shadow=1;" parent="1" vertex="1">
-                    <mxGeometry x="1810" y="1098" width="55" height="20" as="geometry"/>
                 </mxCell>
                 <mxCell id="400" value="&lt;b&gt;图例&lt;/b&gt;" style="text;html=1;fontSize=10;fontStyle=1;fontColor=#37474F;align=left;verticalAlign=top;" parent="1" vertex="1">
                     <mxGeometry x="1530" y="1387" width="40" height="20" as="geometry"/>
