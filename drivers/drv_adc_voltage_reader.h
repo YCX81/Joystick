@@ -7,7 +7,7 @@ extern "C" {
 #endif
 
 typedef struct {
-  drv_status_t (*read)(void* ctx, adc_channel_id_t channel, uint32_t* mv);
+  fw_status_t (*read)(void* ctx, adc_channel_id_t channel, uint32_t* mv);
   void* ctx;
 } adc_voltage_reader_t;
 
