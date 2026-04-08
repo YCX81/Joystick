@@ -1,8 +1,6 @@
 #pragma once
 
-#include "drv_adc_continuous.h"
-#include "drv_adc_reader.h"
-#include "drv_adc_voltage_reader.h"
+#include "drv_adc.h"
 #include "drv_can.h"
 #include "drv_gpio.h"
 #include "drv_spi.h"
