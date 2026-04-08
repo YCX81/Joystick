@@ -137,9 +137,9 @@ The original design placed all ADC functions in a single `adc_driver_t`. The joy
 #include "drv_common.h"
 
 typedef struct {
-    drv_status_t (*init)(void);
-    drv_status_t (*read)(adc_channel_id_t ch, uint16_t *raw);
-    drv_status_t (*deinit)(void);
+    fw_status_t (*init)(void);
+    fw_status_t (*read)(adc_channel_id_t ch, uint16_t *raw);
+    fw_status_t (*deinit)(void);
 } adc_reader_t;
 ```
 
@@ -149,7 +149,7 @@ typedef struct {
 #include "drv_common.h"
 
 typedef struct {
-    drv_status_t (*read_mv)(adc_channel_id_t ch, uint32_t *mv);
+    fw_status_t (*read_mv)(adc_channel_id_t ch, uint32_t *mv);
 } adc_voltage_reader_t;
 ```
 
@@ -159,36 +159,38 @@ typedef struct {
 #include "drv_common.h"
 
 typedef struct {
-    drv_status_t (*start_continuous)(adc_channel_id_t *chs, uint8_t cnt,
+    fw_status_t (*start_continuous)(adc_channel_id_t *chs, uint8_t cnt,
                                      uint16_t *buf, uint16_t buf_len);
-    drv_status_t (*stop_continuous)(void);
+    fw_status_t (*stop_continuous)(void);
 } adc_continuous_t;
 ```
 
 ```c
-// drivers/drv_common.h — Common type definitions
+// common/error.h — Global status codes (shared across all layers)
 #pragma once
 #include <stdint.h>
 
 typedef enum {
-    DRV_OK = 0,
-    DRV_ERROR,
-    DRV_TIMEOUT,
-    DRV_BUSY,
-    DRV_INVALID_ARG,
-    DRV_NOT_SUPPORTED,
-} drv_status_t;
+    FW_OK,
+    FW_ERROR,
+    FW_BUSY,
+    FW_TIMEOUT,
+    FW_INVALID_ARG,
+    FW_STATUS_MAX
+} fw_status_t;
+```
 
-typedef enum {
-    ADC_CH_AXIS_X,
-    ADC_CH_AXIS_Y,
-    ADC_CH_AXIS_Z,
-    ADC_CH_KNOB,
-    ADC_CH_VREF,
-    ADC_CH_TEMP,
-    ADC_CH_SUPPLY,
-    ADC_CH_MAX
-} adc_channel_id_t;
+```c
+// drivers/drv_common.h — Driver-layer common type definitions
+#pragma once
+#include <stdint.h>
+#include "error.h"
+
+typedef uint8_t adc_channel_id_t;
+#define ADC_CH_MAX 64
+
+typedef uint8_t gpio_pin_id_t;
+#define GPIO_PIN_MAX 64
 ```
 
 Platform implementations can satisfy multiple interfaces simultaneously:
@@ -237,24 +239,24 @@ typedef struct {
 } can_frame_t;
 
 typedef struct {
-    drv_status_t (*init)(void *ctx, uint32_t baudrate);
+    fw_status_t (*init)(void *ctx, uint32_t baudrate);
 
     // Send (called from task context)
-    drv_status_t (*send)(void *ctx, const can_frame_t *frame);
+    fw_status_t (*send)(void *ctx, const can_frame_t *frame);
 
     // Non-blocking receive: returns immediately
-    // DRV_OK=frame received, DRV_BUSY=queue empty
-    drv_status_t (*try_recv)(void *ctx, can_frame_t *frame);
+    // FW_OK=frame received, FW_BUSY=queue empty
+    fw_status_t (*try_recv)(void *ctx, can_frame_t *frame);
 
     // Blocking receive: yields CPU waiting for frame arrival
     // RTOS platform → osMessageQueueGet(timeout)
     // Bare-metal platform → ring buffer + WFI
     // PC mock  → condition variable
-    drv_status_t (*wait_recv)(void *ctx, can_frame_t *frame, uint32_t timeout_ms);
+    fw_status_t (*wait_recv)(void *ctx, can_frame_t *frame, uint32_t timeout_ms);
 
-    drv_status_t (*set_filter)(void *ctx, uint32_t id, uint32_t mask);
-    drv_status_t (*get_bus_state)(void *ctx, uint8_t *tx_err, uint8_t *rx_err);
-    drv_status_t (*deinit)(void *ctx);
+    fw_status_t (*set_filter)(void *ctx, uint32_t id, uint32_t mask);
+    fw_status_t (*get_bus_state)(void *ctx, uint8_t *tx_err, uint8_t *rx_err);
+    fw_status_t (*deinit)(void *ctx);
 
     void *ctx;  // Platform context (contains internal ring buffer / async_queue, etc.)
 } can_port_t;
@@ -280,14 +282,14 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
 }
 
 // External interface implementation
-static drv_status_t stm32_try_recv(void *ctx, can_frame_t *frame) {
+static fw_status_t stm32_try_recv(void *ctx, can_frame_t *frame) {
     can_stm32g4_ctx_t *c = (can_stm32g4_ctx_t *)ctx;
-    return async_queue_get(&c->rx_queue, frame, 0) ? DRV_OK : DRV_BUSY;
+    return async_queue_get(&c->rx_queue, frame, 0) ? FW_OK : FW_BUSY;
 }
 
-static drv_status_t stm32_wait_recv(void *ctx, can_frame_t *frame, uint32_t timeout_ms) {
+static fw_status_t stm32_wait_recv(void *ctx, can_frame_t *frame, uint32_t timeout_ms) {
     can_stm32g4_ctx_t *c = (can_stm32g4_ctx_t *)ctx;
-    return async_queue_get(&c->rx_queue, frame, timeout_ms) ? DRV_OK : DRV_TIMEOUT;
+    return async_queue_get(&c->rx_queue, frame, timeout_ms) ? FW_OK : FW_TIMEOUT;
 }
 ```
 
@@ -307,13 +309,13 @@ typedef enum {
 
 // Split per ISP: read and write are separated
 typedef struct {
-    drv_status_t (*init)(void);
-    drv_status_t (*read)(gpio_pin_id_t pin, uint8_t *state);
+    fw_status_t (*init)(void);
+    fw_status_t (*read)(gpio_pin_id_t pin, uint8_t *state);
 } gpio_reader_t;
 
 typedef struct {
-    drv_status_t (*write)(gpio_pin_id_t pin, uint8_t state);
-    drv_status_t (*toggle)(gpio_pin_id_t pin);
+    fw_status_t (*write)(gpio_pin_id_t pin, uint8_t state);
+    fw_status_t (*toggle)(gpio_pin_id_t pin);
 } gpio_writer_t;
 ```
 
@@ -426,11 +428,11 @@ The linker determines which platform's `platform_init.c` is compiled in; upper-l
 #include "drv_common.h"
 
 typedef struct {
-    drv_status_t (*init)(uint32_t clock_hz);
-    drv_status_t (*transfer)(uint8_t cs_pin,
+    fw_status_t (*init)(uint32_t clock_hz);
+    fw_status_t (*transfer)(uint8_t cs_pin,
                               const uint8_t *tx, uint8_t *rx,
                               uint16_t len);
-    drv_status_t (*deinit)(void);
+    fw_status_t (*deinit)(void);
 } spi_driver_t;
 ```
 
@@ -593,8 +595,8 @@ static inline void frame_publish(frame_publisher_t *fp, uint8_t completed_idx) {
 }
 
 // Called from task context: consume latest frame
-// Returns DRV_OK=new frame, DRV_BUSY=no update
-static inline drv_status_t frame_consume(frame_publisher_t *fp,
+// Returns FW_OK=new frame, FW_BUSY=no update
+static inline fw_status_t frame_consume(frame_publisher_t *fp,
                                           void *out,
                                           uint32_t *out_seq) {
     uint32_t s = fp->seq;
@@ -602,7 +604,7 @@ static inline drv_status_t frame_consume(frame_publisher_t *fp,
     async_read_barrier();           // Ensure index is read before data
     memcpy(out, fp->buffers[idx], fp->frame_size);
     *out_seq = s;
-    return DRV_OK;
+    return FW_OK;
 }
 ```
 
@@ -680,7 +682,7 @@ The v4 `board_scanner_t` mixed "synchronous topology orchestration" and "async a
   ┌─────────────────────────────────────────────────────────────┐
   │  Layer 2: input_acq_t (acquisition backend interface;       │
   │           sole entry point for upper layers)                 │
-  │  acquire_latest(ctx, &buf, &seq) → DRV_OK / DRV_BUSY       │
+  │  acquire_latest(ctx, &buf, &seq) → FW_OK / FW_BUSY       │
   │  Provides "latest consistent snapshot + sequence number"    │
   └──────────────────────────┬──────────────────────────────────┘
                              │ writes to
@@ -710,16 +712,16 @@ Replaces the v4 `board_scanner_t`. No longer distinguishes "scan" from "frame re
 
 typedef struct {
     // Start acquisition backend (initialize DMA / configure MUX / start SPI, etc.)
-    drv_status_t (*start)(void *ctx);
+    fw_status_t (*start)(void *ctx);
 
     // Stop acquisition backend
-    drv_status_t (*stop)(void *ctx);
+    fw_status_t (*stop)(void *ctx);
 
     // Get latest consistent snapshot (single atomic operation; replaces has_fresh_sample + acquire)
-    // DRV_OK    = successfully acquired consistent snapshot; seq returns current sequence number
-    // DRV_BUSY  = no new sample available (caller reuses last snapshot or waits for notification)
-    // DRV_ERROR = underlying acquisition error
-    drv_status_t (*acquire_latest)(void *ctx, scan_buffer_t *out, uint32_t *seq);
+    // FW_OK    = successfully acquired consistent snapshot; seq returns current sequence number
+    // FW_BUSY  = no new sample available (caller reuses last snapshot or waits for notification)
+    // FW_ERROR = underlying acquisition error
+    fw_status_t (*acquire_latest)(void *ctx, scan_buffer_t *out, uint32_t *seq);
 
     void *ctx;  // Points to the context of the specific backend
 } input_acq_t;
@@ -776,7 +778,7 @@ typedef struct {
     uint32_t             seq;           // Monotonically increasing sequence number
 } mux_adc_acq_ctx_t;
 
-static drv_status_t mux_adc_acquire(void *ctx, scan_buffer_t *out, uint32_t *seq) {
+static fw_status_t mux_adc_acquire(void *ctx, scan_buffer_t *out, uint32_t *seq) {
     mux_adc_acq_ctx_t *c = (mux_adc_acq_ctx_t *)ctx;
     out->count = c->total_channels;
 
@@ -794,7 +796,7 @@ static drv_status_t mux_adc_acquire(void *ctx, scan_buffer_t *out, uint32_t *seq
     out->seq = ++c->seq;
     out->timestamp_ms = drv_get_time_ms();
     *seq = out->seq;
-    return DRV_OK;  // Synchronous pull always succeeds (unless hardware error)
+    return FW_OK;  // Synchronous pull always succeeds (unless hardware error)
 }
 ```
 
@@ -812,7 +814,7 @@ typedef struct {
     uint32_t            seq;
 } direct_adc_acq_ctx_t;
 
-static drv_status_t direct_adc_acquire(void *ctx, scan_buffer_t *out, uint32_t *seq) {
+static fw_status_t direct_adc_acquire(void *ctx, scan_buffer_t *out, uint32_t *seq) {
     direct_adc_acq_ctx_t *c = (direct_adc_acq_ctx_t *)ctx;
     out->count = c->channel_count;
 
@@ -825,7 +827,7 @@ static drv_status_t direct_adc_acquire(void *ctx, scan_buffer_t *out, uint32_t *
     out->seq = ++c->seq;
     out->timestamp_ms = drv_get_time_ms();
     *seq = out->seq;
-    return DRV_OK;
+    return FW_OK;
 }
 ```
 
@@ -843,13 +845,13 @@ typedef struct {
     uint32_t            seq;
 } spi_hall_acq_ctx_t;
 
-static drv_status_t spi_hall_acquire(void *ctx, scan_buffer_t *out, uint32_t *seq) {
+static fw_status_t spi_hall_acquire(void *ctx, scan_buffer_t *out, uint32_t *seq) {
     spi_hall_acq_ctx_t *c = (spi_hall_acq_ctx_t *)ctx;
 
     uint8_t tx[2] = {0xFF, 0xFF};  // AS5048A: NOP command reads angle
     uint8_t rx[2] = {0};
-    drv_status_t st = c->spi->transfer(c->cs_pin, tx, rx, 2);
-    if (st != DRV_OK) return DRV_ERROR;
+    fw_status_t st = c->spi->transfer(c->cs_pin, tx, rx, 2);
+    if (st != FW_OK) return FW_ERROR;
 
     uint16_t angle = ((rx[0] & 0x3F) << 8) | rx[1];  // 14-bit angle
     out->values[c->channel_index] = angle;
@@ -858,7 +860,7 @@ static drv_status_t spi_hall_acquire(void *ctx, scan_buffer_t *out, uint32_t *se
     out->seq = ++c->seq;
     out->timestamp_ms = drv_get_time_ms();
     *seq = out->seq;
-    return DRV_OK;
+    return FW_OK;
 }
 ```
 
@@ -888,7 +890,7 @@ static void dma_complete_isr(void *ctx) {
     frame_publish(&c->fp, completed_idx);  // Contains async_write_barrier()
 }
 
-static drv_status_t dma_adc_start(void *ctx) {
+static fw_status_t dma_adc_start(void *ctx) {
     dma_adc_acq_ctx_t *c = (dma_adc_acq_ctx_t *)ctx;
     // Initialize frame_publisher
     c->fp.buffers[0] = c->buf_a;
@@ -902,16 +904,16 @@ static drv_status_t dma_adc_start(void *ctx) {
                                           c->buf_a, c->channel_count);
 }
 
-static drv_status_t dma_adc_acquire(void *ctx, scan_buffer_t *out, uint32_t *seq) {
+static fw_status_t dma_adc_acquire(void *ctx, scan_buffer_t *out, uint32_t *seq) {
     dma_adc_acq_ctx_t *c = (dma_adc_acq_ctx_t *)ctx;
     uint32_t new_seq;
 
     // frame_consume contains async_read_barrier()
-    drv_status_t st = frame_consume(&c->fp, out->values, &new_seq);
-    if (st != DRV_OK) return st;
+    fw_status_t st = frame_consume(&c->fp, out->values, &new_seq);
+    if (st != FW_OK) return st;
 
     if (new_seq == c->last_consumed_seq) {
-        return DRV_BUSY;  // No new frame
+        return FW_BUSY;  // No new frame
     }
 
     out->count = c->channel_count;
@@ -919,7 +921,7 @@ static drv_status_t dma_adc_acquire(void *ctx, scan_buffer_t *out, uint32_t *seq
     out->timestamp_ms = drv_get_time_ms();
     *seq = new_seq;
     c->last_consumed_seq = new_seq;
-    return DRV_OK;
+    return FW_OK;
 }
 ```
 
@@ -935,7 +937,7 @@ static drv_status_t dma_adc_acquire(void *ctx, scan_buffer_t *out, uint32_t *seq
 
 // Unified axis input source interface (signal processing chain depends on this)
 typedef struct {
-    drv_status_t (*read_raw)(void *ctx, int32_t *raw_value);
+    fw_status_t (*read_raw)(void *ctx, int32_t *raw_value);
     void *ctx;
     uint8_t resolution_bits;    // 12 for 12-bit ADC, 14 for AS5048A, etc.
 } axis_source_t;
@@ -946,13 +948,13 @@ typedef struct {
     uint8_t              channel_index; // Channel index of this axis in scan_buffer
 } buf_axis_ctx_t;
 
-static inline drv_status_t buf_axis_read(void *ctx, int32_t *raw) {
+static inline fw_status_t buf_axis_read(void *ctx, int32_t *raw) {
     const buf_axis_ctx_t *c = (const buf_axis_ctx_t *)ctx;
     if (c->channel_index >= c->buf->count) {
-        return DRV_INVALID_ARG;
+        return FW_INVALID_ARG;
     }
     *raw = (int32_t)c->buf->values[c->channel_index];
-    return DRV_OK;
+    return FW_OK;
 }
 ```
 
@@ -966,7 +968,7 @@ static inline drv_status_t buf_axis_read(void *ctx, int32_t *raw) {
 
 // Unified button input source interface
 typedef struct {
-    drv_status_t (*read_buttons)(void *ctx, uint16_t *button_mask);
+    fw_status_t (*read_buttons)(void *ctx, uint16_t *button_mask);
     void *ctx;
     uint8_t button_count;
 } button_source_t;
@@ -981,7 +983,7 @@ typedef struct {
     uint8_t    count;                // Number of buttons
 } buf_btn_ctx_t;
 
-static inline drv_status_t buf_btn_read(void *ctx, uint16_t *mask) {
+static inline fw_status_t buf_btn_read(void *ctx, uint16_t *mask) {
     const buf_btn_ctx_t *c = (const buf_btn_ctx_t *)ctx;
     *mask = 0;
     for (uint8_t i = 0; i < c->count; i++) {
@@ -989,7 +991,7 @@ static inline drv_status_t buf_btn_read(void *ctx, uint16_t *mask) {
             *mask |= (1u << i);
         }
     }
-    return DRV_OK;
+    return FW_OK;
 }
 ```
 
@@ -1018,7 +1020,7 @@ Hardware sensors ──→ ┌────────────────�
                                         ▼
                      ┌─────────────────────────────────────────────────┐
                      │   input_acq_t.acquire_latest(ctx, &buf, &seq)  │
-                     │   DRV_OK=consistent snapshot  DRV_BUSY=no update│
+                     │   FW_OK=consistent snapshot  FW_BUSY=no update│
                      └──────────────────┬──────────────────────────────┘
                                         │ writes to
                                         ▼
@@ -1644,7 +1646,7 @@ static const canopen_profile_t *profile;
 static const can_port_t *can;
 static uint8_t node_id;
 
-drv_status_t canopen_engine_init(const can_port_t *port,
+fw_status_t canopen_engine_init(const can_port_t *port,
                                  const canopen_profile_t *cfg_profile,
                                  uint8_t cfg_node_id) {
     can = port;
@@ -1669,11 +1671,11 @@ drv_status_t canopen_engine_init(const can_port_t *port,
     }
 
     event_bus_subscribe(EVT_SAFETY_STATE_CHANGED, on_safety_changed);
-    return DRV_OK;
+    return FW_OK;
 }
 
 // v4: receives output_data_t (already converted by output_adapter; values are in target range)
-drv_status_t canopen_engine_send(const output_data_t *data) {
+fw_status_t canopen_engine_send(const output_data_t *data) {
     // Write already-converted values to OD; no longer calls axis_map_output()
     for (uint8_t i = 0; i < profile->axis_map_count && i < data->axes_count; i++) {
         od_update_value(profile->od,
@@ -1684,17 +1686,17 @@ drv_status_t canopen_engine_send(const output_data_t *data) {
     // Write buttons to OD
     od_update_value(profile->od, profile->digital_input_index,
                     profile->digital_input_subindex, data->buttons);
-    return DRV_OK;
+    return FW_OK;
 }
 
-drv_status_t canopen_engine_on_rx_frame(const can_frame_t *frame) {
+fw_status_t canopen_engine_on_rx_frame(const can_frame_t *frame) {
     return co_node_on_frame(frame);
 }
 
-drv_status_t canopen_engine_process_periodic(uint32_t now_ms) {
+fw_status_t canopen_engine_process_periodic(uint32_t now_ms) {
     (void)now_ms;
     co_node_process();
-    return DRV_OK;
+    return FW_OK;
 }
 
 static void on_safety_changed(const event_t *evt) {
@@ -1794,15 +1796,15 @@ const j1939_profile_t j1939_brand_x = {
 static const j1939_profile_t *profile;
 static const can_port_t *can;
 
-drv_status_t j1939_engine_init(const can_port_t *port,
+fw_status_t j1939_engine_init(const can_port_t *port,
                                const j1939_profile_t *cfg_profile) {
     can = port;
     profile = cfg_profile;
-    return DRV_OK;
+    return FW_OK;
 }
 
 // v4: receives output_data_t; axis values already converted by output_adapter
-drv_status_t j1939_engine_send(const output_data_t *data) {
+fw_status_t j1939_engine_send(const output_data_t *data) {
     for (uint8_t p = 0; p < profile->pgn_count; p++) {
         const pgn_descriptor_t *pgn = &profile->pgns[p];
         can_frame_t frame = {0};
@@ -1825,7 +1827,7 @@ drv_status_t j1939_engine_send(const output_data_t *data) {
         }
         can->send(can->ctx, &frame);
     }
-    return DRV_OK;
+    return FW_OK;
 }
 
 static int32_t spn_get_source(const output_data_t *data,
@@ -1844,14 +1846,14 @@ static int32_t spn_get_source(const output_data_t *data,
     }
 }
 
-drv_status_t j1939_engine_on_rx_frame(const can_frame_t *frame) {
+fw_status_t j1939_engine_on_rx_frame(const can_frame_t *frame) {
     (void)frame;
-    return DRV_NOT_SUPPORTED;
+    return FW_ERROR;
 }
 
-drv_status_t j1939_engine_process_periodic(uint32_t now_ms) {
+fw_status_t j1939_engine_process_periodic(uint32_t now_ms) {
     (void)now_ms;
-    return DRV_OK;
+    return FW_OK;
 }
 ```
 
@@ -1917,10 +1919,10 @@ typedef struct {
     protocol_type_t type;
     uint32_t capabilities;
 
-    drv_status_t (*send)(const output_data_t *data);
-    drv_status_t (*on_rx_frame)(const can_frame_t *frame);
-    drv_status_t (*process_periodic)(uint32_t now_ms);
-    drv_status_t (*get_bus_diag)(protocol_status_t *status);
+    fw_status_t (*send)(const output_data_t *data);
+    fw_status_t (*on_rx_frame)(const can_frame_t *frame);
+    fw_status_t (*process_periodic)(uint32_t now_ms);
+    fw_status_t (*get_bus_diag)(protocol_status_t *status);
 } protocol_runtime_t;
 ```
 
@@ -1930,7 +1932,7 @@ Build the runtime interface from the bundle type at initialization (the sole swi
 // protocols/protocol_init.c
 static protocol_runtime_t runtime;
 
-drv_status_t protocol_init(const protocol_bundle_t *bundle) {
+fw_status_t protocol_init(const protocol_bundle_t *bundle) {
     runtime.type = bundle->type;
 
     switch (bundle->type) {
@@ -1966,9 +1968,9 @@ drv_status_t protocol_init(const protocol_bundle_t *bundle) {
             break;
 
         default:
-            return DRV_INVALID_ARG;
+            return FW_INVALID_ARG;
     }
-    return DRV_OK;
+    return FW_OK;
 }
 
 const protocol_runtime_t* protocol_get_runtime(void) {
@@ -2507,14 +2509,14 @@ static void on_safety_changed(const event_t *evt) {
 }
 
 // proto_task sends in its own context
-drv_status_t canopen_engine_process_periodic(uint32_t now_ms) {
+fw_status_t canopen_engine_process_periodic(uint32_t now_ms) {
     (void)now_ms;
     if (pending_emcy) {
         pending_emcy = 0;
         co_emcy_send(profile->emcy_code_sensor_fault);  // Send in proto_task context
     }
     co_node_process();
-    return DRV_OK;
+    return FW_OK;
 }
 ```
 
@@ -2567,9 +2569,9 @@ typedef enum {
 
 typedef struct {
     device_state_t current;
-    drv_status_t (*on_enter)(void);
-    drv_status_t (*on_execute)(void);
-    drv_status_t (*on_exit)(void);
+    fw_status_t (*on_enter)(void);
+    fw_status_t (*on_execute)(void);
+    fw_status_t (*on_exit)(void);
 
     // State transition table
     struct {
@@ -2965,16 +2967,16 @@ static void main_task_entry(void *param) {
         if (device_state_get_current() == STATE_OPERATIONAL) {
             // 1. v5: Obtain consistent snapshot via input_acq_t (atomic + sequence number)
             uint32_t new_seq;
-            drv_status_t st = acq->acquire_latest(acq->ctx, buf, &new_seq);
+            fw_status_t st = acq->acquire_latest(acq->ctx, buf, &new_seq);
 
-            if (st == DRV_OK) {
+            if (st == FW_OK) {
                 // Detect frame drops (optional: for diagnostics)
                 if (new_seq - acq_seq > 1) {
                     // Log frame drop event (non-blocking)
                 }
                 acq_seq = new_seq;
             }
-            // DRV_BUSY: Continue with last snapshot (synchronous backends won't return this)
+            // FW_BUSY: Continue with last snapshot (synchronous backends won't return this)
             uint32_t now_ms = osKernelGetTickCount();
             if ((buf->timestamp_ms != 0u) &&
                 ((now_ms - buf->timestamp_ms) > INPUT_MAX_AGE_MS)) {
@@ -3023,7 +3025,7 @@ static void proto_task_entry(void *param) {
 
         // v5: Block waiting for CAN frame (platform layer handles ISR→queue conversion internally)
         // 1ms timeout ensures CANopen heartbeat/NMT timer processing
-        if (can->wait_recv(can->ctx, &rx_frame, 1) == DRV_OK) {
+        if (can->wait_recv(can->ctx, &rx_frame, 1) == FW_OK) {
             proto->on_rx_frame(&rx_frame);
         }
         proto->process_periodic(osKernelGetTickCount());
@@ -3359,10 +3361,10 @@ void safety_channel_compute(safety_channel_ctx_t *ctx,
 
     for (uint8_t i = 0; i < ctx->axes_count; i++) {
         uint32_t mv = 0;
-        drv_status_t ret = ctx->l2_adc->read_mv(ctx->channel_indices[i], &mv);
+        fw_status_t ret = ctx->l2_adc->read_mv(ctx->channel_indices[i], &mv);
 
         // Independent open-circuit/short-circuit detection (does not reuse fault_detector.c)
-        if (ret != DRV_OK || mv < SAFETY_MV_LOW || mv > SAFETY_MV_HIGH) {
+        if (ret != FW_OK || mv < SAFETY_MV_LOW || mv > SAFETY_MV_HIGH) {
             out->sensor_ok = 0;
             out->axes[i] = 0;
             continue;
@@ -3981,22 +3983,22 @@ bool safety_post_run(post_ctx_t *ctx, const safety_stl_t *stl) {
 
 ```c
 // app/device_state.c — STATE_BOOT integrates POST
-static drv_status_t boot_self_test(void) {
+static fw_status_t boot_self_test(void) {
     static post_ctx_t post_ctx;
     const safety_stl_t *stl = platform_get_stl();
 
     if (stl == NULL) {
         // Non-safety model; skip POST
-        return DRV_OK;
+        return FW_OK;
     }
 
     if (!safety_post_run(&post_ctx, stl)) {
         // POST failed; do not allow entry into PRE_OPERATIONAL
         nv_storage_write_post_result(post_ctx.fail_mask);
         safe_shutdown_activate();
-        return DRV_ERROR;
+        return FW_ERROR;
     }
-    return DRV_OK;
+    return FW_OK;
 }
 ```
 
@@ -4252,8 +4254,11 @@ joystick-firmware/
 ├── CMakeLists.txt
 ├── build_all.sh
 │
+├── common/                     # Global shared definitions (used by all layers)
+│   └── error.h                 # fw_status_t universal status codes
+│
 ├── drivers/                    # Hardware abstraction interfaces (header-only after ISP split)
-│   ├── drv_common.h            # Common types (drv_status_t, adc_channel_id_t, etc.)
+│   ├── drv_common.h            # Driver common types (adc_channel_id_t, gpio_pin_id_t)
 │   ├── adc_reader.h            # Basic ADC read interface
 │   ├── adc_voltage_reader.h    # Voltage read interface
 │   ├── adc_continuous.h        # DMA continuous acquisition interface
