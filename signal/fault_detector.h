@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 #include "error.h"
 
 #ifdef __cplusplus
